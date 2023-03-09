@@ -159,8 +159,8 @@
         SVGOverlay.setMap(map);
       }
     }
-
-    fetch("https://election-storage.s3.eu-west-1.amazonaws.com/candidates.json", {
+// https://election-storage.s3.eu-west-1.amazonaws.com/candidates.json
+    fetch("./candidates.json", {
       mode: "no-cors",
       method: "GET",
       referrerPolicy:"no-referrer",
