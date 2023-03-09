@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    /* Set the height of the map container */
+    #map {
+      height: 100%;
+    }
+  </style>
+</head>
+<body>
+  <div class="form">
+    <div class="form-field">
+      <select name="candidate-selector" id="candidate-selector">
+        <option value="">Choose candidate</option>
+        <option value="1">1</option>
+      </select>
+    </div>
+  </div>
+  <!-- Create a div to hold the map -->
+  <div id="map" style="width:100%;height:900px;"></div>
+
+  <script>
+    function getUrlVars() {
+      var vars = {};
+      var parts = window.location.href.replace(/[?&]+([^=&]+)=([^&]*)/gi, function(m,key,value) {
+      vars[key] = value;
+      });
+      return vars;
+    }
+    var filterFloat = function (value) {
+    if(/^(\-|\+)?([0-9]+(\.[0-9]+)?|Infinity)$/
+      .test(value))
+      return Number(value);
+  return NaN;
+}
+
+    var map;
+    var SVGOverlay;
+    // Define the array of latitude and longitude coordinates
+    // var coords = [
+    //   {lat: 51.5, lng: -0.1},
+    //   {lat: 51.6, lng: -0.2},
+    //   {lat: 51.7, lng: -0.3}
+    // ];
+
+    // Define the callback function to initialize the map
+    async function initMap() {
+
+        var coords=[];
+        var datas=[];
+        var total_votes=[]
+    await fetch('https://bdfqeanazekq5kvfeebnua4h2m0guswz.lambda-url.eu-west-1.on.aws/election/ps/retrieveLatLng')
+      .then(response => response.json())
+      .then(data => {
+        // Process the response data and add it to the page
+        coords=data.map(obj=>({
+            lat: obj.lat,
+            lng:obj.lng
+        }))
+        datas=data.map(obj=>({
+            polling_station: obj.polling_station,
+        }))
+        total_votes=data.map(obj=>({
+          total_votes:obj.total_votes
+        }))
+        console.log(data)
+      }
+      )
+      .catch(error => console.error(error));
+      if(coords)
+      {
+          // Create a new map object centered on the first coordinate in the array
+          var map = new google.maps.Map(document.getElementById('map'), {
+            center: { lat: parseFloat(getUrlVars()["lat"]), lng: parseFloat(getUrlVars()["lng"]) }??"?lat=31.5204&lng=74.3587&n=31.643357&s=31.362124&w=74.425298204&e=74.233744",
+            zoom: 13
+          });
+    
+          var markers = [];
+          // Loop through the coordinates array and add a marker for each one
+          for (var i = 0; i < coords.length; i++) {
+            var marker = new google.maps.Marker({
+              position: coords[i],
+              title:datas[i].polling_station + " Total Votes " + total_votes[i].total_votes,
+              map: null,
+              icon: {
+                url: './marker.png',
+                scaledSize: new google.maps.Size(30, 30)
+            }
+            });
+            markers.push(marker);
+          }
+
+          function showMarkersInBounds() {
+            var zoomLevel = map.getZoom();
+            var bounds = map.getBounds();
+            for (var i = 0; i < markers.length; i++) {
+              if (bounds.contains(markers[i].getPosition())) {
+                markers[i].setMap(zoomLevel >= 14 ? map : null);
+              } else {
+                markers[i].setMap(null);
+              }
+            }
+          }
+      }
+      google.maps.event.addListener(map, 'zoom_changed', showMarkersInBounds);
+      // google.maps.event.addListener(map, 'zoom_changed', function() {
+      //   zoomLevel = map.getZoom();
+      //   for (var i = 0; i < markers.length; i++) {
+      //     markers[i].setMap(zoomLevel >= 10 ? map : null);
+      //   }
+      // });
+      google.maps.event.addListener(map, 'idle', showMarkersInBounds);
+
+      var imageBounds = {
+        north: filterFloat(getUrlVars()["n"]),
+        south: filterFloat(getUrlVars()["s"]), 
+        west: filterFloat(getUrlVars()["w"]),
+        east: filterFloat(getUrlVars()["e"]),
+      };
+      
+      var expandAmount = parseFloat(getUrlVars()["expand"]);
+     // console.log(imageBounds,expandAmount)
+      updateBounds();
+
+
+      var redMapType = new google.maps.StyledMapType(
+    [
+      {
+        featureType: "administrative",
+        elementType: "geometry.stroke",
+        stylers: [{ color: "#ff0000" }],
+      },
+    ],
+    { name: "Red" }
+  );
+
+  map.mapTypes.set("red", redMapType);
+  map.setMapTypeId("red");
+
+
+      function updateBounds() {
+        imageBounds.north += expandAmount;
+        imageBounds.south -= expandAmount;
+        imageBounds.east += expandAmount;
+        imageBounds.west -= expandAmount;
+
+        if (SVGOverlay) {
+          SVGOverlay.setMap(null);
+        }
+
+        SVGOverlay = new google.maps.GroundOverlay(
+          "https://desaas-21928.web.app/test/"+getUrlVars()["map"]+".svg",
+          imageBounds,
+          
+          { draggable: true,editable: true }
+        );
+        SVGOverlay.setMap(map);
+      }
+    }
+
+    fetch("https://election-storage.s3.eu-west-1.amazonaws.com/candidates.json", {
+      mode: "no-cors",
+      method: "GET",
+      referrerPolicy:"no-referrer",
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      }
+    }).then(r => r.json()).then(res => {
+      if(res) {
+        let html = ""
+        Object.keys(res).forEach(sector => {
+          const candidates = res[sector]
+          candidates.forEach(candidate => {
+            html += `<option value="${sector}_${candidate}">${candidate} (${sector})</option>`
+          })
+        })
+        document.querySelector('#candidate-selector').innerHTML = html 
+        document.querySelector('#candidate-selector').addEventListener('change', e => {
+          console.log(e.target.value)
+          let val = e.target.value 
+          if(val) {
+            let sec = val.split('_')[0]
+            let name = val.split('_')[1]
+            getResultsBySectorAndCandidateName(sec, name).then(res => {
+              console.log(res)
+            })
+          }
+        })
+      }
+    })
+
+    const getResultsBySectorAndCandidateName = async (sector, name) => {
+      let url = `https://bdfqeanazekq5kvfeebnua4h2m0guswz.lambda-url.eu-west-1.on.aws/election/search-results-by-sector-and-name?sector=${sector.toUpperCase()}&name=${name}`
+      let res = await fetch(url)
+      res = await res.json()
+      return res
+    }
+
+    
+  </script>
+<script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBxh8DT3s64AR1py7V5KHuHm7kvlM3D5sE&callback=initMap"></script>
+
+</body>
+</html>
+
+
+<!-- https://maps.googleapis.com/maps/api/js?key=AIzaSyBxh8DT3s64AR1py7V5KHuHm7kvlM3D5sE -->
